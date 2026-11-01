@@ -1,0 +1,4 @@
+import {spawn} from 'node:child_process';
+const args=process.argv.slice(2).filter(a=>a!=='--strictPort').map(a=>a==='--host'?'--hostname':a);
+const child=spawn(process.execPath,['node_modules/next/dist/bin/next','dev','--webpack',...args],{stdio:'inherit'});
+child.on('exit',code=>process.exit(code||0));
