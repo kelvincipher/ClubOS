@@ -25,4 +25,4 @@ async function proxy(request, context) {
     return Response.json(data,{status:response.status});
   } catch { return Response.json({error:'API unavailable. Render may be waking up; wait about a minute and try again.'},{status:503}); }
 }
-export {proxy as GET, proxy as POST, proxy as PATCH, proxy as DELETE};
+export {proxy as GET, proxy as POST, proxy as PATCH, proxy as PUT, proxy as DELETE};

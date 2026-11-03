@@ -1,3 +1,4 @@
+import {registerWorkflows,normalizeCampaign,normalizeTask} from './workflows.js';
 import express from 'express';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -8,7 +9,7 @@ import {z} from 'zod';
 const id=()=>randomUUID(), text=z.string().trim().min(1).max(200);
 const fail=(status,message)=>{const e=new Error(message);e.status=status;throw e;};
 export function createApp(db,secret){
- const app=express();app.set('trust proxy',1);app.use(helmet());app.use(express.json({limit:'64kb'}));
+ const app=express();app.set('trust proxy',1);app.use(helmet());app.use(express.json({limit:'512kb'}));
  const ref=(c,i)=>db.collection(c).doc(i);
  const get=async(c,i)=>{const d=await ref(c,i).get();return d.exists?{...d.data(),id:d.id}:null;};
  const list=async(c,k,v)=>{let q=db.collection(c);if(k)q=q.where(k,'==',v);return(await q.get()).docs.map(d=>({...d.data(),id:d.id}));};
@@ -43,13 +44,7 @@ export function createApp(db,secret){
   const cid=req.params.cid,club=await get('clubs',cid);if(!club)fail(404,'Club not found.');const membership=await get('members',mid(cid,req.user.id));
   const [campaigns,events,apps,regs]=await Promise.all([list('campaigns','club_id',cid),list('events','club_id',cid),list('applications','club_id',cid),list('registrations','club_id',cid)]);
   const [members,resources,tasks,handovers]=membership?await Promise.all(['members','resources','tasks','handovers'].map(c=>list(c,'club_id',cid))):[[],[],[],[]];
-  res.json({club,membership,campaigns,events:events.sort((a,b)=>a.starts_at.localeCompare(b.starts_at)),applications:staff.includes(membership?.role)?apps:apps.filter(a=>a.user_id===req.user.id),registrations:regs.filter(r=>r.user_id===req.user.id),members,resources,tasks,handovers:handovers.sort((a,b)=>b.created_at.localeCompare(a.created_at)),attendance:staff.includes(membership?.role)?regs.map(({token,...r})=>r):[]});
- });
- app.post('/api/clubs/:cid/campaigns',async(req,res)=>{await role(req,req.params.cid,staff);const b=z.object({title:text,deadline:z.iso.datetime()}).parse(req.body);if(new Date(b.deadline)<=new Date())fail(400,'Choose a future deadline.');await put('campaigns',{...b,club_id:req.params.cid,open:true});res.status(201).json({ok:true});});
- app.patch('/api/campaigns/:id',async(req,res)=>{const c=await get('campaigns',req.params.id);if(!c)fail(404,'Campaign not found.');await role(req,c.club_id,staff);const b=z.object({open:z.boolean()}).parse(req.body);await ref('campaigns',c.id).update(b);res.json({ok:true});});
- app.post('/api/campaigns/:id/apply',async(req,res)=>{
-  const b=z.object({motivation:z.string().trim().min(10).max(3000)}).parse(req.body);
-  await db.runTransaction(async t=>{const snap=await t.get(ref('campaigns',req.params.id));if(!snap.exists)fail(404,'Campaign not found.');const c=snap.data();const m=await t.get(ref('members',mid(c.club_id,req.user.id)));const aid=mid(c.id,req.user.id),a=await t.get(ref('applications',aid));if(m.exists)fail(400,'You are already a member.');if(a.exists)fail(409,'You already applied.');if(!c.open||new Date(c.deadline)<new Date())fail(400,'This campaign is closed.');t.create(ref('applications',aid),{id:aid,campaign_id:c.id,club_id:c.club_id,user_id:req.user.id,name:req.user.name,email:req.user.email,title:c.title,...b,status:'applied'});});res.status(201).json({ok:true});
+  res.json({club,membership,campaigns:campaigns.map(normalizeCampaign),events:events.sort((a,b)=>a.starts_at.localeCompare(b.starts_at)),applications:staff.includes(membership?.role)?apps:apps.filter(a=>a.user_id===req.user.id),registrations:regs.filter(r=>r.user_id===req.user.id),members,resources,tasks:tasks.map(normalizeTask),handovers:handovers.sort((a,b)=>b.created_at.localeCompare(a.created_at)),attendance:staff.includes(membership?.role)?regs.map(({token,...r})=>r):[]});
  });
  app.patch('/api/applications/:id',async(req,res)=>{
   const b=z.object({status:z.enum(['interview','accepted','rejected'])}).parse(req.body);
@@ -68,11 +63,10 @@ export function createApp(db,secret){
   await db.runTransaction(async t=>{const ticket=await t.get(ref('tickets',b.token));if(!ticket.exists)fail(404,'Invalid attendance ticket.');const r=await t.get(ref('registrations',ticket.data().registration_id));if(!r.exists)fail(404,'Registration not found.');const m=await t.get(ref('members',mid(r.data().club_id,req.user.id)));if(!m.exists||!staff.includes(m.data().role))fail(403,'Only club officers can check in a ticket.');if(r.data().checked_in_at)fail(409,'This ticket has already been checked in.');t.update(r.ref,{checked_in_at:new Date().toISOString()});});res.json({ok:true});
  });
  app.post('/api/clubs/:cid/resources',async(req,res)=>{await role(req,req.params.cid,staff);const b=z.object({title:text,url:z.url().max(2000).refine(s=>/^https?:\/\//.test(s),'Use an HTTP or HTTPS link')}).parse(req.body);await put('resources',{...b,club_id:req.params.cid});res.status(201).json({ok:true});});
- app.post('/api/clubs/:cid/tasks',async(req,res)=>{await role(req,req.params.cid,staff);const b=z.object({title:text}).parse(req.body);await put('tasks',{...b,club_id:req.params.cid,done:false});res.status(201).json({ok:true});});
- app.patch('/api/tasks/:id',async(req,res)=>{const t=await get('tasks',req.params.id);if(!t)fail(404,'Task not found.');await role(req,t.club_id,staff);const b=z.object({done:z.boolean()}).parse(req.body);await ref('tasks',t.id).update(b);res.json({ok:true});});
  app.post('/api/clubs/:cid/handover',async(req,res)=>{
   const b=z.object({to_id:z.string().uuid(),note:z.string().trim().min(10).max(3000)}).parse(req.body);
   await db.runTransaction(async t=>{const c=await t.get(ref('clubs',req.params.cid));if(!c.exists)fail(404,'Club not found.');if(c.data().owner_id!==req.user.id)fail(403,'Only the current president can transfer leadership.');if(b.to_id===req.user.id)fail(400,'Select another member.');const successor=await t.get(ref('members',mid(c.id,b.to_id)));if(!successor.exists)fail(400,'The successor must already be a member.');t.update(ref('members',mid(c.id,req.user.id)),{role:'officer'});t.update(successor.ref,{role:'president'});t.update(c.ref,{owner_id:b.to_id});t.create(ref('handovers',id()),{club_id:c.id,from_id:req.user.id,to_id:b.to_id,from_name:req.user.name,to_name:successor.data().name,note:b.note,created_at:new Date().toISOString()});});res.json({ok:true});
  });
- app.use((req,res)=>res.status(404).json({error:'Endpoint not found.'}));app.use((e,req,res,next)=>{if(e instanceof z.ZodError)return res.status(400).json({error:e.issues.map(i=>`${i.path.join('.')}: ${i.message}`).join('; ')});if(e.status)return res.status(e.status).json({error:e.message});if(e.type==='entity.parse.failed')return res.status(400).json({error:'Invalid JSON.'});console.error('API error:',e.code||e.name);res.status(500).json({error:'Something went wrong. Check API logs and database configuration.'});});return app;
+ registerWorkflows(app,{db,ref,get,put,role,mid,fail,staff});
+ app.use((req,res)=>res.status(404).json({error:'Endpoint not found.'}));app.use((e,req,res,next)=>{if(e instanceof z.ZodError)return res.status(400).json({error:e.issues.map(i=>`${i.path.join('.')}: ${i.message}`).join('; ')});if(e.status)return res.status(e.status).json({error:e.message});if(e.type==='entity.too.large')return res.status(413).json({error:'The form is too large. Shorten the questions or answers.'});if(e.type==='entity.parse.failed')return res.status(400).json({error:'Invalid JSON.'});console.error('API error:',e.code||e.name);res.status(500).json({error:'Something went wrong. Check API logs and database configuration.'});});return app;
 }
