@@ -73,11 +73,18 @@ export function registerWorkflows(app,{db,ref,get,put,role,mid,fail,staff}){
   return b;
  }
  app.post('/api/clubs/:cid/tasks',async(req,res)=>{
-  const b=taskFields.strict().parse({description:'',scope:'club',committee:null,assignee_id:null,due_at:null,priority:'normal',...req.body}),id=randomUUID();
+  const {delivery_project_id,delivery_commitment_id,...b}=taskFields.extend({delivery_project_id:z.string().uuid().optional(),delivery_commitment_id:z.string().uuid().optional()}).strict().parse({description:'',scope:'club',committee:null,assignee_id:null,due_at:null,priority:'normal',...req.body}),id=randomUUID();
   await db.runTransaction(async tx=>{
    const m=await tx.get(ref('members',mid(req.params.cid,req.user.id)));if(!m.exists||!staff.includes(m.data().role))fail(403,'Only club officers can assign work.');
+   const link={};
+   if(delivery_project_id||delivery_commitment_id){
+    if(!delivery_project_id||!delivery_commitment_id||b.scope!=='individual'||!b.due_at)fail(400,'Linked tasks require a commitment, an individual assignee and a deadline.');
+    const p=await tx.get(ref('delivery_projects',delivery_project_id));
+    if(!p.exists||p.data().club_id!==req.params.cid||!p.data().commitments.some(c=>c.id===delivery_commitment_id))fail(400,'Select a commitment from this club.');
+    Object.assign(link,{delivery_project_id,delivery_commitment_id});
+   }
    await assignment(tx,req.params.cid,b);
-   const timestamp=now();tx.create(ref('tasks',id),{...b,id,club_id:req.params.cid,status:'todo',progress:0,done:false,created_by:req.user.id,created_at:timestamp,updated_at:timestamp,revision:1,history:[{id:randomUUID(),actor_id:req.user.id,actor_name:req.user.name,at:timestamp,kind:'created',comment:'',status:'todo',progress:0}]});
+   const timestamp=now();tx.create(ref('tasks',id),{...b,...link,id,club_id:req.params.cid,status:'todo',progress:0,done:false,created_by:req.user.id,created_at:timestamp,updated_at:timestamp,revision:1,history:[{id:randomUUID(),actor_id:req.user.id,actor_name:req.user.name,at:timestamp,kind:'created',comment:'',status:'todo',progress:0}]});
   });res.status(201).json({ok:true,id});
  });
  app.patch('/api/tasks/:id',async(req,res)=>{
@@ -92,6 +99,7 @@ export function registerWorkflows(app,{db,ref,get,put,role,mid,fail,staff}){
    if(!manager&&metadata.length)fail(403,'Only club officers can change task assignments or details.');
    if(b.expected_revision!==undefined&&b.expected_revision!==t.revision)fail(409,'Task changed. Reopen it before saving.');
    const {expected_revision,comment,done,...changes}=b;
+   if(t.delivery_project_id&&metadata.length&&((b.scope??t.scope)!=='individual'||('assignee_id' in b&&!b.assignee_id)||('due_at' in b&&!b.due_at)))fail(400,'Delivery tasks must retain an individual assignee and deadline.');
    if(metadata.length)await assignment(tx,t.club_id,{...t,...changes}).then(v=>{for(const k of Object.keys(taskFields.shape))changes[k]=v[k]});
    let nextStatus=b.status??(done!==undefined?(done?'done':'todo'):t.status),progress=b.progress??(done===false?0:t.progress);
    if(b.status===undefined&&done===undefined&&b.progress!==undefined){if(progress===100)nextStatus='done';else if(progress>0&&nextStatus==='todo')nextStatus='in_progress';}

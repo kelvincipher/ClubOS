@@ -1,3 +1,4 @@
+import {registerDelivery} from './delivery.js';
 import {registerWorkflows,normalizeCampaign,normalizeTask} from './workflows.js';
 import express from 'express';
 import helmet from 'helmet';
@@ -67,6 +68,7 @@ export function createApp(db,secret){
   const b=z.object({to_id:z.string().uuid(),note:z.string().trim().min(10).max(3000)}).parse(req.body);
   await db.runTransaction(async t=>{const c=await t.get(ref('clubs',req.params.cid));if(!c.exists)fail(404,'Club not found.');if(c.data().owner_id!==req.user.id)fail(403,'Only the current president can transfer leadership.');if(b.to_id===req.user.id)fail(400,'Select another member.');const successor=await t.get(ref('members',mid(c.id,b.to_id)));if(!successor.exists)fail(400,'The successor must already be a member.');t.update(ref('members',mid(c.id,req.user.id)),{role:'officer'});t.update(successor.ref,{role:'president'});t.update(c.ref,{owner_id:b.to_id});t.create(ref('handovers',id()),{club_id:c.id,from_id:req.user.id,to_id:b.to_id,from_name:req.user.name,to_name:successor.data().name,note:b.note,created_at:new Date().toISOString()});});res.json({ok:true});
  });
+ registerDelivery(app,{db,ref,get,list,mid,role,staff,fail});
  registerWorkflows(app,{db,ref,get,put,role,mid,fail,staff});
  app.use((req,res)=>res.status(404).json({error:'Endpoint not found.'}));app.use((e,req,res,next)=>{if(e instanceof z.ZodError)return res.status(400).json({error:e.issues.map(i=>`${i.path.join('.')}: ${i.message}`).join('; ')});if(e.status)return res.status(e.status).json({error:e.message});if(e.type==='entity.too.large')return res.status(413).json({error:'The form is too large. Shorten the questions or answers.'});if(e.type==='entity.parse.failed')return res.status(400).json({error:'Invalid JSON.'});console.error('API error:',e.code||e.name);res.status(500).json({error:'Something went wrong. Check API logs and database configuration.'});});return app;
 }

@@ -36,7 +36,7 @@ test('complete lifecycle, cross-club permissions, capacity, duplicate check-in a
  const checks=await Promise.all([call(p,'post','checkin',{token}),call(p,'post','checkin',{token})]);assert.deepEqual(checks.map(r=>r.status).sort(),[200,409]);
  assert.equal((await call(p,'post',`clubs/${cid}/resources`,{title:'Handbook',url:'javascript:alert(1)'})).status,400);
  assert.equal((await call(p,'post',`clubs/${cid}/resources`,{title:'Handbook',url:'https://example.com/handbook'})).status,201);
- assert.equal((await call(p,'post',`clubs/${cid}/tasks`,{title:'Prepare handover'})).status,201);
+ assert.equal((await call(p,'post',`clubs/${cid}/tasks`,{title:'Prepare handover',scope:'individual',assignee_id:president.user.id})).status,201);
  state=(await call(p,'get',`clubs/${cid}`)).body;
  assert.equal((await call(s,'patch',`tasks/${state.tasks[0].id}`,{done:true})).status,403);
  assert.equal((await call(p,'patch',`tasks/${state.tasks[0].id}`,{done:true})).status,200);
