@@ -1,3 +1,4 @@
+import {registerAdmin,publicUser} from './admin.js';
 import {registerDelivery} from './delivery.js';
 import {registerWorkflows,normalizeCampaign,normalizeTask} from './workflows.js';
 import express from 'express';
@@ -18,13 +19,13 @@ export function createApp(db,secret){
  const mid=(c,u)=>`${c}_${u}`;
  const role=async(req,c,allowed)=>{const m=await get('members',mid(c,req.user.id));if(!m||!allowed.includes(m.role))fail(403,'You do not have access to this club action.');return m;};
  const staff=['president','officer'],all=[...staff,'member'];
- const safe=({password,...u})=>u;
+ const safe=publicUser;
  const sign=u=>jwt.sign({sub:u.id},secret,{expiresIn:'7d',algorithm:'HS256'});
  const limiter=rateLimit({windowMs:15*60*1000,limit:50,standardHeaders:'draft-8',legacyHeaders:false,message:{error:'Too many sign-in attempts. Try again in 15 minutes.'}});
  app.get('/api/health',async(req,res)=>{await db.collection('clubs').limit(1).get();res.json({ok:true,database:'firestore'});});
  app.post('/api/auth/register',limiter,async(req,res)=>{
   const b=z.object({name:text,email:z.email().max(254).transform(s=>s.toLowerCase()),password:z.string().min(10).max(100)}).parse(req.body);
-  const u={id:id(),name:b.name,email:b.email,password:await bcrypt.hash(b.password,12)};
+  const u={id:id(),name:b.name,email:b.email,password:await bcrypt.hash(b.password,12),platform_role:'standard'};
   const key=createHash('sha256').update(b.email).digest('hex');
   await db.runTransaction(async t=>{const e=await t.get(ref('emails',key));if(e.exists)fail(409,'This email is already registered.');t.create(ref('emails',key),{user_id:u.id});t.create(ref('users',u.id),u);});res.status(201).json({user:safe(u),token:sign(u)});
  });
@@ -35,9 +36,11 @@ export function createApp(db,secret){
   if(!u||!valid)fail(401,'Incorrect email or password.');res.json({user:safe(u),token:sign(u)});
  });
  app.use('/api',async(req,res,next)=>{try{const token=req.headers.authorization?.replace(/^Bearer /,'');const payload=jwt.verify(token,secret,{algorithms:['HS256']});req.user=await get('users',payload.sub);if(!req.user) return res.status(401).json({error:'Please sign in again.'});next();}catch(e){if(['JsonWebTokenError','TokenExpiredError','NotBeforeError'].includes(e.name)||!req.headers.authorization)return res.status(401).json({error:'Please sign in again.'});next(e);}});
+ app.use('/api',(req,res,next)=>{res.set('Cache-Control','private, no-store');next();});
  app.get('/api/me',(req,res)=>res.json(safe(req.user)));
  app.get('/api/clubs',async(req,res)=>{const memberships=await list('members','user_id',req.user.id);res.json((await list('clubs')).map(c=>({...c,role:memberships.find(m=>m.club_id===c.id)?.role})).sort((a,b)=>a.name.localeCompare(b.name)));});
  app.post('/api/clubs',async(req,res)=>{
+  if(req.user.platform_role==='partner')fail(403,'Partner accounts cannot create clubs.');
   const b=z.object({name:text,description:z.string().trim().min(10).max(2000),category:text}).parse(req.body),cid=id();
   const batch=db.batch();batch.create(ref('clubs',cid),{...b,id:cid,owner_id:req.user.id});batch.create(ref('members',mid(cid,req.user.id)),{club_id:cid,user_id:req.user.id,name:req.user.name,role:'president',committee:'Leadership'});await batch.commit();res.status(201).json({id:cid});
  });
@@ -68,6 +71,7 @@ export function createApp(db,secret){
   const b=z.object({to_id:z.string().uuid(),note:z.string().trim().min(10).max(3000)}).parse(req.body);
   await db.runTransaction(async t=>{const c=await t.get(ref('clubs',req.params.cid));if(!c.exists)fail(404,'Club not found.');if(c.data().owner_id!==req.user.id)fail(403,'Only the current president can transfer leadership.');if(b.to_id===req.user.id)fail(400,'Select another member.');const successor=await t.get(ref('members',mid(c.id,b.to_id)));if(!successor.exists)fail(400,'The successor must already be a member.');t.update(ref('members',mid(c.id,req.user.id)),{role:'officer'});t.update(successor.ref,{role:'president'});t.update(c.ref,{owner_id:b.to_id});t.create(ref('handovers',id()),{club_id:c.id,from_id:req.user.id,to_id:b.to_id,from_name:req.user.name,to_name:successor.data().name,note:b.note,created_at:new Date().toISOString()});});res.json({ok:true});
  });
+ registerAdmin(app,{db,ref,get,list,mid,fail});
  registerDelivery(app,{db,ref,get,list,mid,role,staff,fail});
  registerWorkflows(app,{db,ref,get,put,role,mid,fail,staff});
  app.use((req,res)=>res.status(404).json({error:'Endpoint not found.'}));app.use((e,req,res,next)=>{if(e instanceof z.ZodError)return res.status(400).json({error:e.issues.map(i=>`${i.path.join('.')}: ${i.message}`).join('; ')});if(e.status)return res.status(e.status).json({error:e.message});if(e.type==='entity.too.large')return res.status(413).json({error:'The form is too large. Shorten the questions or answers.'});if(e.type==='entity.parse.failed')return res.status(400).json({error:'Invalid JSON.'});console.error('API error:',e.code||e.name);res.status(500).json({error:'Something went wrong. Check API logs and database configuration.'});});return app;

@@ -90,10 +90,10 @@ export default function Delivery({api,user,clubs,cache}){
      {c.tasks?.map(t=><div className="delivery-task" key={t.id}>
       <h4>{t.title}</h4><p>{t.description}</p><p>{name(t.assignee_id)} · {t.due_at?new Date(t.due_at).toLocaleString():'No deadline'} · {label(t.status)}</p>
       {!report&&(manager||t.assignee_id===user.id)&&<details><summary>Update task or submit evidence</summary>
-       <form className="delivery-form" key={t.revision} onSubmit={e=>{e.preventDefault();save('tasks/'+t.id,'PATCH',{...fields(e),expected_revision:t.revision})}}>
+       <form className="delivery-form" key={`task-${t.revision}`} onSubmit={e=>{e.preventDefault();save('tasks/'+t.id,'PATCH',{...fields(e),expected_revision:t.revision})}}>
         <label>Task status<select name="status" defaultValue={t.status}>{['todo','in_progress','blocked','review','done'].map(s=><option key={s} value={s}>{label(s)}</option>)}</select></label><Save busy={busy}>Update task</Save>
        </form>
-       <form className="delivery-form" key={p.revision} onSubmit={e=>{e.preventDefault();save(path+'/tasks/'+t.id+'/evidence','PUT',fields(e))}}>
+       <form className="delivery-form" key={`evidence-${p.revision}`} onSubmit={e=>{e.preventDefault();save(path+'/tasks/'+t.id+'/evidence','PUT',fields(e))}}>
         <Field title="Shareable evidence URL" name="url" type="url" required={false} maxLength={1000} value={c.evidence.find(x=>x.task_id===t.id)?.url}/>
         <label>Completion note or aggregate attendance<textarea name="note" maxLength={500} defaultValue={c.evidence.find(x=>x.task_id===t.id)?.note}/></label>
         <p className="meta">Evidence is visible to the shared partner. Use aggregate figures and links approved for sharing.</p><Save busy={busy}>Submit evidence</Save>

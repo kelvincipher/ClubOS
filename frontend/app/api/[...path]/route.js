@@ -22,7 +22,7 @@ async function proxy(request, context) {
     const data = await response.json();
     if (data.token) { jar.set('clubos_session',data.token,{httpOnly:true, secure:process.env.NODE_ENV==='production',sameSite:'lax',path:'/',maxAge:60*60*24*7}); delete data.token; }
     if(response.status===401) jar.delete('clubos_session');
-    return Response.json(data,{status:response.status});
+    return Response.json(data,{status:response.status,headers:{'Cache-Control':'private, no-store'}});
   } catch { return Response.json({error:'API unavailable. Render may be waking up; wait about a minute and try again.'},{status:503}); }
 }
 export {proxy as GET, proxy as POST, proxy as PATCH, proxy as PUT, proxy as DELETE};

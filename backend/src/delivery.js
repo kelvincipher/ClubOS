@@ -19,7 +19,11 @@ export function registerDelivery(app,{db,ref,get,list,mid,role,staff,fail}){
  const requireProject=p=>{if(!p)fail(404,'Project not found.');return p};
  function item(p,id){const c=p.commitments.find(c=>c.id===id);if(!c)fail(404,'Commitment not found.');return c}
  function dates(b){if(b.end<b.start)fail(400,'End date must be on or after the start date.');return b}
- app.get('/api/delivery/shared',async(req,res)=>res.json((await list(projects,'partner_id',req.user.id)).map(header)));
+ app.get('/api/delivery/shared',async(req,res)=>{
+  const shared=await list(projects,'partner_id',req.user.id);
+  const external=await Promise.all(shared.map(async p=>(await membership(p.club_id,req.user.id).get()).exists?null:header(p)));
+  res.json(external.filter(Boolean));
+ });
  app.get('/api/clubs/:cid/delivery',async(req,res)=>{
   await role(req,req.params.cid,[...staff,'member']);
   res.json((await list(projects,'club_id',req.params.cid)).map(header));
@@ -36,7 +40,7 @@ export function registerDelivery(app,{db,ref,get,list,mid,role,staff,fail}){
  app.get('/api/delivery/:id',async(req,res)=>{
   const p=requireProject(await get(projects,req.params.id));
   const member=from(await membership(p.club_id,req.user.id).get());
-  const partner=p.partner_id===req.user.id&&!manager(member);
+  const partner=p.partner_id===req.user.id&&!member;
   if(!member&&!partner)fail(403,'This project is private.');
   const tasks=partner?[]:(await list('tasks','delivery_project_id',p.id)).map(normalizeTask);
   const club=await get('clubs',p.club_id);
@@ -52,7 +56,7 @@ export function registerDelivery(app,{db,ref,get,list,mid,role,staff,fail}){
   await db.runTransaction(async tx=>{
    const snap=await tx.get(ref(projects,req.params.id)),p=requireProject(from(snap));
    const member=from(await tx.get(membership(p.club_id,req.user.id)));
-   const partner=p.partner_id===req.user.id&&!manager(member);
+   const partner=p.partner_id===req.user.id&&!member;
    if(!member&&!partner)fail(403,'This project is private.');
    const officer=()=>{if(!manager(member))fail(403,'Only club officers can make this change.')};
    const changes=await apply({tx,p,member,partner,officer});
