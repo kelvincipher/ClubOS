@@ -55,7 +55,7 @@ export default function Delivery({api,user,clubs,cache}){
  const path='delivery/'+id;
  const manager=p?.access==='manager',partner=p?.access==='partner';
  return <div className="delivery">
-  {error&&<p role="alert" className="notice error">{error}</p>}
+  {error&&<p tabIndex={-1} ref={el=>el?.focus()} role="alert" className="delivery-error">{error}</p>}
   {!id?<><p className="reading">Manage sponsor commitments, assigned work and partner acceptance.</p>
    <details className="delivery-card"><summary>Partner account ID</summary><p>Share this ID with a club officer to receive access.</p><code>{user.id}</code></details>
    {clubs.length>0&&<section className="delivery-card"><h2>Club projects</h2><label>Club<select value={selected} onChange={e=>{setProjects([]);setClub(e.target.value)}}>{clubs.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
