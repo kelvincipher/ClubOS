@@ -24,14 +24,14 @@ Start with [DEPLOYMENT.md](DEPLOYMENT.md) for exact deployment steps and environ
 
 ```text
 clubos/
-  frontend/       Next.js App Router, UI and same-origin API proxy
-  backend/        Express API, Firebase Admin SDK, emulator integration test
-  firebase.json   Optional emulator settings
-  firestore.rules Deny direct browser access; API uses Admin SDK
-  render.yaml     Optional Render Blueprint
-  DEPLOYMENT.md   Full deployment, environment variables and troubleshooting
-  DEMO.md         Suggested presentation walkthrough
-  VERIFICATION.md Checks performed and limits
+  frontend/        Next.js App Router, UI and same-origin API proxy
+  backend/         Express API, Firebase Admin SDK, emulator integration test
+  firebase.json    Optional emulator settings
+  firestore.rules  Deny direct browser access; API uses Admin SDK
+  render.yaml      Optional Render Blueprint
+  DEPLOYMENT.md    Full deployment, environment variables and troubleshooting
+  DEMO.md          Suggested presentation walkthrough
+  VERIFICATION.md  Checks performed and limits
 ```
 
 Both apps have **package-lock.json**. Run `npm ci` inside `frontend` and `backend`; the repository root has no npm package.
